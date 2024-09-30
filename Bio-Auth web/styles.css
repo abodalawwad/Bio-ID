@@ -1,26 +1,33 @@
-
 body {
     margin: 0;
     padding: 0;
-    font-family: Arial, sans-serif;
-    background: #022dc9a3;
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(to right, #6a11cb, #2575fc);
+    color: #fff;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     height: 100vh;
+    text-align: center;
 }
 
-.container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 100%;
+h1 {
+    font-size: 2.5rem;
+    margin-bottom: 20px;
+    text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.7);
 }
 
-.amazing-button {
+video {
+    border: 5px solid #fff;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+    margin-bottom: 20px;
+}
+
+.detect-button {
     position: relative;
-    background: linear-gradient(45deg, #180343, #f7f7f700);
+    background: linear-gradient(45deg, #00c6ff, #0072ff);
     border: none;
     border-radius: 50px;
     padding: 15px 30px;
@@ -32,6 +39,7 @@ body {
     transition: all 0.3s ease;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     overflow: hidden;
+    margin-top: 20px;
 }
 
 .button-text {
@@ -52,7 +60,7 @@ body {
     user-select: none;
 }
 
-.amazing-button::before {
+.detect-button::before {
     content: '';
     position: absolute;
     top: 50%;
@@ -65,12 +73,55 @@ body {
     border-radius: 50%;
 }
 
-.amazing-button:hover::before {
+.detect-button:hover::before {
     transform: translate(-50%, -50%) scale(1);
 }
 
-.amazing-button:hover {
-    background: linear-gradient(45deg, #210151, #200254);
+.detect-button:hover {
+    background: linear-gradient(45deg, #0072ff, #00c6ff);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
     transform: translateY(-2px);
+}
+
+h2 {
+    font-size: 1.5rem;
+    margin-top: 20px;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#prediction {
+    font-weight: bold;
+    color: #ffd700; 
+}
+
+.footer {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.9rem;
+    color: #fff;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+@media (max-width: 768px) {
+    h1 {
+        font-size: 2rem; 
+    }
+
+    video {
+        width: 90%; 
+    }
+
+    .detect-button {
+        padding: 12px 24px;
+    }
+
+    h2 {
+        font-size: 1.3rem;
+    }
+
+    #prediction {
+        font-size: 1rem; 
+    }
 }

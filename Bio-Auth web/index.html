@@ -3,15 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stunning Button</title>
+    <title>Bio-ID</title>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
-    <div class="container">
-        <button class="amazing-button">
-            <span class="button-text">Click here to detection face</span>
-            <span class="button-overlay">TVTC</span>
-        </button>
-    </div>
+    <h1>Person Recognition</h1>
+
+    <video id="video" width="640" height="480" autoplay></video>
+
+    <button id="captureBtn" class="detect-button">
+        <span class="button-text">Click here to detect face</span>
+        <span class="button-overlay">TVTC</span>
+    </button>
+    
+    <h2>Prediction: <span id="prediction">None</span></h2>
+
+    <script>
+        const video = document.getElementById('video');
+        
+        // يطلب الوصول إلى الكاميرا من الصفحة
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then((stream) => {
+                video.srcObject = stream;
+            })
+            .catch((err) => {
+                console.error('Error accessing camera: ', err);
+            });
+
+        // Flask لأخذ لقطة من الفيديو وإرسالها إلى
+        const captureBtn = document.getElementById('captureBtn');
+        captureBtn.addEventListener('click', () => {   
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataURL = canvas.toDataURL('image/jpeg');
+
+            fetch('/classify', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ image: dataURL })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('prediction').textContent = data.predicted_person;
+            })
+            .catch(err => console.error('Error in classification request:', err));
+        });
+    </script>
 </body>
 </html>
