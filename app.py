@@ -13,6 +13,44 @@ from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm  
 
 
+def init_user_db():
+    with sqlite3.connect('users.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password TEXT
+            )
+        ''')
+        conn.commit()
+
+
+def add_user(username, password):
+    with sqlite3.connect('users.db', timeout=10) as conn:
+        c = conn.cursor()
+        try:
+            c.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, password))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
+
+
+def fetch_users():
+    with sqlite3.connect('users.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('SELECT * FROM users')
+        users = c.fetchall()
+    return users
+
+
+def is_valid_user(username, password):
+    with sqlite3.connect('users.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, password))
+        user = c.fetchone()
+    return user is not None
+
+
 def load_facenet_model(device):
     model = InceptionResnetV1(pretrained='vggface2').eval()  
     model.to(device)
@@ -20,67 +58,53 @@ def load_facenet_model(device):
 
 
 def preprocess_image(image, face_cascade_path='haarcascade_frontalface_default.xml'):
-    
     img_rgb = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2RGB)
-
-    
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + face_cascade_path)
-
-    
     faces = face_cascade.detectMultiScale(img_rgb, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
 
     if len(faces) == 0:
         raise ValueError("No face detected in the image.")
 
-    
     x, y, w, h = faces[0]
     face = img_rgb[y:y+h, x:x+w]
-
-    
     face_pil = Image.fromarray(face)
-
     
     transform = transforms.Compose([
         transforms.Resize((160, 160)),  
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
-
     
     face_tensor = transform(face_pil)
     face_tensor = face_tensor.unsqueeze(0)  
-
     return face_tensor
 
 
 def init_embedding_db():
-    conn = sqlite3.connect('embeddings.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS embeddings (
-            person_name TEXT PRIMARY KEY,
-            embedding BLOB
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('embeddings.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS embeddings (
+                person_name TEXT PRIMARY KEY,
+                embedding BLOB
+            )
+        ''')
+        conn.commit()
 
 
 def save_embedding_to_db(person_name, embedding):
-    conn = sqlite3.connect('embeddings.db')
-    c = conn.cursor()
-    c.execute('INSERT OR REPLACE INTO embeddings (person_name, embedding) VALUES (?, ?)',
-              (person_name, embedding.tobytes()))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('embeddings.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('INSERT OR REPLACE INTO embeddings (person_name, embedding) VALUES (?, ?)',
+                  (person_name, embedding.tobytes()))
+        conn.commit()
 
 
 def load_embeddings_from_db():
-    conn = sqlite3.connect('embeddings.db')
-    c = conn.cursor()
-    c.execute('SELECT person_name, embedding FROM embeddings')
-    rows = c.fetchall()
-    conn.close()
+    with sqlite3.connect('embeddings.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('SELECT person_name, embedding FROM embeddings')
+        rows = c.fetchall()
 
     known_face_embeddings = []
     class_names = []
@@ -96,20 +120,13 @@ def load_embeddings_from_db():
 
 
 def check_for_new_persons(data_path):
-    conn = sqlite3.connect('embeddings.db')
-    c = conn.cursor()
+    with sqlite3.connect('embeddings.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('SELECT person_name FROM embeddings')
+        existing_persons = set([row[0] for row in c.fetchall()])
 
-    
-    c.execute('SELECT person_name FROM embeddings')
-    existing_persons = set([row[0] for row in c.fetchall()])
-
-    
     data_persons = set(os.listdir(data_path))
-
-    
     new_persons = data_persons - existing_persons
-    conn.close()
-
     return list(new_persons)
 
 
@@ -123,12 +140,8 @@ def generate_and_store_new_embeddings(model, new_persons, data_path, device):
                     image = Image.open(image_path)
                     face_tensor = preprocess_image(image)  
                     face_tensor = face_tensor.to(device)
-
-                    
                     with torch.no_grad():
                         embedding = model(face_tensor).cpu().numpy()
-
-                    
                     save_embedding_to_db(person_name, embedding)
 
                 except Exception as e:
@@ -136,14 +149,9 @@ def generate_and_store_new_embeddings(model, new_persons, data_path, device):
 
 
 def recognize_face(model, face_tensor, known_face_embeddings, class_names, device, threshold=0.6):
-    
     face_tensor = face_tensor.to(device)
-
-    
     with torch.no_grad():
         embedding = model(face_tensor).cpu().numpy()
-
-    
     similarities = cosine_similarity(embedding, known_face_embeddings)
     best_match_idx = np.argmax(similarities)
     best_match_score = similarities[0][best_match_idx]
@@ -155,117 +163,121 @@ def recognize_face(model, face_tensor, known_face_embeddings, class_names, devic
 
 
 def init_detection_db():
-    conn = sqlite3.connect('detections.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS detections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_name TEXT,
-            datetime TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('detections.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS detections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_name TEXT,
+                datetime TEXT
+            )
+        ''')
+        conn.commit()
 
 
 def log_detection(person_name):
-    conn = sqlite3.connect('detections.db')
-    c = conn.cursor()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', (person_name, timestamp))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('detections.db', timeout=10) as conn:
+        c = conn.cursor()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', (person_name, timestamp))
+        conn.commit()
 
 
-detecting = False
+def login_page():
+    st.title("Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if is_valid_user(username, password):
+            st.session_state["username"] = username
+            st.session_state["logged_in"] = True
+            st.success("Login successful! Redirecting to face detection...")
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+
+def face_detection_page():
+    st.title("Face Detection")
+    FRAME_WINDOW = st.image([])  
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = load_facenet_model(device)
+    known_face_embeddings, class_names = load_embeddings_from_db()
+    cap = cv2.VideoCapture(0)
+    
+    no_face_detected = False  
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to read from camera")
+            break
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        FRAME_WINDOW.image(frame)
+
+        try:
+            face_tensor = preprocess_image(frame)
+            recognized_person = recognize_face(model, face_tensor, known_face_embeddings, class_names, device)
+            if recognized_person == st.session_state["username"]:
+                log_detection(recognized_person)
+                st.success(f"Face recognized! Redirecting to welcome page...")
+                st.session_state["face_recognized"] = True
+                st.rerun()
+                break
+            else:
+                no_face_detected = False  
+
+        except ValueError:
+            if not no_face_detected:  
+                st.warning("No face detected")
+                no_face_detected = True  
+
+    cap.release()
+
+
+def welcome_page():
+    st.title(f"Welcome Back {st.session_state['username']}!")
+
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.success("You have been logged out.")
+        st.rerun()
+
 
 def main():
-    
-
-    
+    init_user_db()
     init_embedding_db()
     init_detection_db()
 
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    users_to_add = [
+        ("Alahmari", "1234"),
+        ("Alawad", "1234"),
+        ("Alenazi", "1234")
+    ]
 
-    
-    model = load_facenet_model(device)
+    for username, password in users_to_add:
+        add_user(username, password)
 
-    
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+    if "face_recognized" not in st.session_state:
+        st.session_state["face_recognized"] = False
+
+    if not st.session_state["logged_in"]:
+        login_page()
+    elif not st.session_state["face_recognized"]:
+        face_detection_page()
+    else:
+        welcome_page()
+
     data_path = "image_persons"
-
-    
     new_persons = check_for_new_persons(data_path)
     if new_persons:
-        print("Found New Persons Putting them into db.")
-        generate_and_store_new_embeddings(model, new_persons, data_path, device)
-
-    
-    
-    known_face_embeddings, class_names = load_embeddings_from_db()
-    
-    
-    st.markdown("<h1 style='text-align: center; color: grey;'>Person Recognition</h1>", unsafe_allow_html=True)
-    
-    
-    FRAME_WINDOW = st.empty()  
-    prediction_placeholder = st.empty()  
-    button_placeholder = st.empty()  
-
-    
-    bg_image = cv2.imread(r"bg-image.webp")
-    bg_image = cv2.resize(bg_image, (640, 480))
-    bg_image = cv2.cvtColor(bg_image, cv2.COLOR_BGR2RGB)
-    FRAME_WINDOW.image(bg_image)
-
-    global detecting  
-
-    
-    with button_placeholder:
-        st.write("")  
-        cols = st.columns(5)  
-
-        
-        if cols[1].button('Start Detection'):
-            if 'detecting' not in st.session_state or not st.session_state.detecting:
-                st.session_state.detecting = True  
-
-        
-        if cols[3].button('Stop Detection'):
-            if 'detecting' in st.session_state and st.session_state.detecting:
-                st.session_state.detecting = False  
-
-    if 'detecting' in st.session_state and st.session_state.detecting:
-        
-        cap = cv2.VideoCapture(0)
-
-        while cap.isOpened() and st.session_state.detecting:  
-            ret, frame = cap.read()
-            if not ret:
-                st.write("Unable to read camera feed.")
-                break
-            
-            try:
-                face_tensor = preprocess_image(frame)
-                predicted_class = recognize_face(model, face_tensor, known_face_embeddings, class_names, device)
-                log_detection(predicted_class)
-            except ValueError:
-                predicted_class = "No face detected"
-            
-            
-            if predicted_class != "Unknown":
-                text = f"Prediction: Welcome {predicted_class}" if predicted_class != "No face detected" else predicted_class
-            else:
-                text = "Prediction: Unknown Person"
-            
-            prediction_placeholder.markdown(f"<p style='position:fixed; bottom:10px; left:10px; font-size:20px;'>{text}</p>", unsafe_allow_html=True)
-
-            
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            FRAME_WINDOW.image(frame)  
-
-        cap.release()  
+        print("Found New Persons. Putting them into db.")
+        model = load_facenet_model(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        generate_and_store_new_embeddings(model, new_persons, data_path, torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
 if __name__ == "__main__":
     main()
