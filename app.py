@@ -173,12 +173,14 @@ def login_page():
 
 def face_detection_page():
     st.title("Face Detection")
-    FRAME_WINDOW = st.image([])  
+    FRAME_WINDOW = st.image([])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_facenet_model(device)
     known_face_embeddings, class_names = load_embeddings_from_db()
     cap = cv2.VideoCapture(0)
-    no_face_detected = False  
+    no_face_detected = False
+    warning_placeholder = st.empty()  # Create a placeholder for the warning message
+    
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -196,13 +198,14 @@ def face_detection_page():
                 st.rerun()
                 break
             else:
-                no_face_detected = False  
+                if no_face_detected:
+                    warning_placeholder.empty()  # Clear the warning if a face is detected
+                no_face_detected = False
         except ValueError:
-            if not no_face_detected:  
-                st.warning("No face detected")
-                no_face_detected = True  
+            if not no_face_detected:
+                warning_placeholder.warning("No face detected")
+                no_face_detected = True
     cap.release()
-
 def welcome_page():
     st.title(f"Welcome Back {st.session_state['username']}!")
     if st.button("Logout"):
