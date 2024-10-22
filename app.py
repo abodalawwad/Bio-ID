@@ -206,7 +206,26 @@ def login_page():
         else:
             st.error(i18n.get(st.session_state.lang).get('login_error'))
 
+    if st.session_state.lang == 'en':
+        
+        arabic_link_html = """
+                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> العربية </a></div>
+         """
+        #st.markdown(arabic_link_html , unsafe_allow_html=True)
 
+        if st.button("تغيير إلى العربية"):
+            st.session_state.lang = 'ar'
+            st.rerun()
+
+    elif st.session_state.lang == 'ar':
+        english_link_html = """
+                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> english </a></div>
+         """
+        #st.markdown(english_link_html , unsafe_allow_html=True)
+
+        if st.button("Change to English"):
+            st.session_state.lang = 'en'
+            st.rerun()
 
 
 
@@ -274,26 +293,7 @@ def main():
     else:
         welcome_page()
 
-    if st.session_state.lang == 'en':
-        
-        arabic_link_html = """
-                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> العربية </a></div>
-         """
-        #st.markdown(arabic_link_html , unsafe_allow_html=True)
 
-        if st.button("تغيير إلى العربية"):
-            st.session_state.lang = 'ar'
-            st.rerun()
-
-    elif st.session_state.lang == 'ar':
-        english_link_html = """
-                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> english </a></div>
-         """
-        #st.markdown(english_link_html , unsafe_allow_html=True)
-
-        if st.button("Change to English"):
-            st.session_state.lang = 'en'
-            st.rerun()
 
     data_path = "image_persons"
     new_persons = check_for_new_persons(data_path)
