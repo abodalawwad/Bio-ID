@@ -12,6 +12,41 @@ from facenet_pytorch import InceptionResnetV1
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm  
 
+if 'lang' not in st.session_state:
+    st.session_state.lang = 'en'
+
+i18n = {
+  'en': { 
+      'login': 'Login',
+      'username': 'Username',
+      'password': 'Password',
+      'successful_login_now_face_detection': 'Login successful! Redirecting to face detection...',
+      'login_error': "Invalid username or password",
+      'face_detection_page': 'Face Detection',
+      'failed_read_from_camera': 'Failed to read from camera',
+      'face_detection_success': 'Face recognized! Redirecting to welcome page...',
+      'no_face_detection': 'No face detected',
+      'logout': 'Logout',
+      'logout_sucessful': 'You have been logged out.',
+      'greeting': 'Welcome back'
+  },
+  'ar': {
+      'login': 'تسجيل الدخول',
+      'username': 'اسم المستخدم',
+      'password': 'كلمة المرور',
+      'successful_login_now_face_detection': 'تسجيل دخول ناجح, جاري التوجه إلى صفحة التحقق من بصمة الوجه...',
+      'login_error': "اسم المستخدم\الرقم السري غير صحيح",
+      'face_detection_page': 'التحقق من بصمة الوجه',
+      'failed_read_from_camera': 'فشل في الاتصال بالكاميرا',
+      'face_detection_success': 'تم التعرف على بصمة الوجه. التوجه إلى صفحة الترحيب',
+      'no_face_detection': 'لم يتم الكشف عن وجه للمطابقة',
+      'logout': 'تسجيل الخروج',
+      'logout_sucessful': 'تم تسجيل الخروج بنجاح',
+      'greeting': 'أهلاً بك'
+
+  }
+}
+
 def init_user_db():
     with sqlite3.connect('users.db', timeout=10) as conn:
         c = conn.cursor()
@@ -159,20 +194,24 @@ def log_detection(person_name):
         conn.commit()
 
 def login_page():
-    st.title("Login")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
+    st.title(i18n.get(st.session_state.lang).get('login'))
+    username = st.text_input(i18n.get(st.session_state.lang).get('username'))
+    password = st.text_input(i18n.get(st.session_state.lang).get('password'), type="password")
+    if st.button(i18n.get(st.session_state.lang).get('login')):
         if is_valid_user(username, password):
             st.session_state["username"] = username
             st.session_state["logged_in"] = True
-            st.success("Login successful! Redirecting to face detection...")
+            st.success(i18n.get(st.session_state.lang).get('successful_login_now_face_detection'))
             st.rerun()
         else:
-            st.error("Invalid username or password")
+            st.error(i18n.get(st.session_state.lang).get('login_error'))
+
+
+
+
 
 def face_detection_page():
-    st.title("Face Detection")
+    st.title(i18n.get(st.session_state.lang).get('face_detection_page'))
     FRAME_WINDOW = st.image([])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_facenet_model(device)
@@ -184,7 +223,7 @@ def face_detection_page():
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
-            st.error("Failed to read from camera")
+            st.error(i18n.get(st.session_state.lang).get('failed_read_from_camera'))
             break
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         FRAME_WINDOW.image(frame)
@@ -193,7 +232,7 @@ def face_detection_page():
             recognized_person = recognize_face(model, face_tensor, known_face_embeddings, class_names, device)
             if recognized_person == st.session_state["username"]:
                 log_detection(recognized_person)
-                st.success(f"Face recognized! Redirecting to welcome page...")
+                st.success(i18n.get(st.session_state.lang).get('face_detection_success'))
                 st.session_state["face_recognized"] = True
                 st.rerun()
                 break
@@ -203,14 +242,14 @@ def face_detection_page():
                 no_face_detected = False
         except ValueError:
             if not no_face_detected:
-                warning_placeholder.warning("No face detected")
+                warning_placeholder.warning(i18n.get(st.session_state.lang).get('no_face_detection'))
                 no_face_detected = True
     cap.release()
 def welcome_page():
-    st.title(f"Welcome Back {st.session_state['username']}!")
-    if st.button("Logout"):
+    st.title(f"{i18n.get(st.session_state.lang).get('greeting')} {st.session_state['username']}!")
+    if st.button(i18n.get(st.session_state.lang).get('logout')):
+        st.success(i18n.get(st.session_state.lang).get('logout_sucessful'))
         st.session_state.clear()
-        st.success("You have been logged out.")
         st.rerun()
 
 def main():
@@ -234,6 +273,28 @@ def main():
         face_detection_page()
     else:
         welcome_page()
+
+    if st.session_state.lang == 'en':
+        
+        arabic_link_html = """
+                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> العربية </a></div>
+         """
+        #st.markdown(arabic_link_html , unsafe_allow_html=True)
+
+        if st.button("تغيير إلى العربية"):
+            st.session_state.lang = 'ar'
+            st.rerun()
+
+    elif st.session_state.lang == 'ar':
+        english_link_html = """
+                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> english </a></div>
+         """
+        #st.markdown(english_link_html , unsafe_allow_html=True)
+
+        if st.button("Change to English"):
+            st.session_state.lang = 'en'
+            st.rerun()
+
     data_path = "image_persons"
     new_persons = check_for_new_persons(data_path)
     if new_persons:
