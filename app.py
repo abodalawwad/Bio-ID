@@ -302,39 +302,97 @@ def face_detection_page():
 
 def fetch_news():
     api_key = 'c5b2ec3e7cc6b1c96dc9e0d6b47155d5'
-    url = f'http://api.mediastack.com/v1/news'
-    params = {
-        'access_key': api_key,
-        'languages': 'en',
-        'limit': 5
-    }
+    url = 'http://api.mediastack.com/v1/news'
+    
+    # Set language based on current session state
+    lang = 'ar' if st.session_state.lang == 'ar' else 'en'
+    
+    # Adjust parameters based on language
+    if lang == 'ar':
+        params = {
+            'access_key': api_key,
+            'languages': 'ar',
+            'countries': 'sa,ae,kw,qa,bh,om,eg,jo,lb',
+            'limit': 5,
+            'sort': 'published_desc'
+        }
+    else:
+        params = {
+            'access_key': api_key,
+            'languages': 'en',
+            'countries': 'us,gb',  # English news from US and UK
+            'limit': 5,
+            'sort': 'published_desc'
+        }
     
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
-        return response.json()['data']
+        data = response.json()
+        
+        if 'data' not in data:
+            print(f"Missing 'data' key in response: {data}")
+            return None
+            
+        if not data['data']:
+            print("Empty data array in response")
+            return None
+            
+        return data['data']
+        
     except Exception as e:
-        print(f"Error fetching news: {e}")
+        print(f"Error fetching news: {str(e)}")
         return None
 
 def welcome_page():
+    # RTL support for Arabic
+    if st.session_state.lang == 'ar':
+        st.markdown("""
+            <style>
+            .element-container, .stMarkdown {
+                direction: rtl;
+                text-align: right;
+            }
+            .stButton {
+                direction: rtl;
+                float: right;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+    
     st.title(f"{i18n.get(st.session_state.lang).get('greeting')} {st.session_state['username']}!")
     
-    # Add news section
+    # Add news section with error handling
     st.subheader(i18n.get(st.session_state.lang).get('news_section'))
-    news = fetch_news()
+    
+    # Add a loading spinner with language-specific message
+    loading_text = 'جاري تحميل الأخبار...' if st.session_state.lang == 'ar' else 'Loading news...'
+    with st.spinner(loading_text):
+        news = fetch_news()
     
     if news:
         for article in news:
+            if not article.get('title'):
+                continue
+                
             with st.expander(article['title']):
-                st.write(article['description'])
-                st.write(f"Source: {article['source']}")
-                if article['url']:
-                    st.markdown(f"[Read more]({article['url']})")
+                if article.get('description'):
+                    st.write(article['description'])
+                if article.get('source'):
+                    source_text = f"المصدر: {article['source']}" if st.session_state.lang == 'ar' else f"Source: {article['source']}"
+                    st.write(source_text)
+                if article.get('url'):
+                    read_more_text = 'اقرأ المزيد' if st.session_state.lang == 'ar' else 'Read more'
+                    st.markdown(f"[{read_more_text}]({article['url']})")
     else:
-        st.error(i18n.get(st.session_state.lang).get('news_error'))
+        error_msg = i18n.get(st.session_state.lang).get('news_error')
+        st.error(error_msg)
+        # Add a retry button with language-specific text
+        retry_text = 'إعادة المحاولة' if st.session_state.lang == 'ar' else 'Retry'
+        if st.button(retry_text):
+            st.rerun()
     
-    # Logout button at the bottom
+    # Logout button
     if st.button(i18n.get(st.session_state.lang).get('logout')):
         st.success(i18n.get(st.session_state.lang).get('logout_sucessful'))
         st.session_state.clear()
