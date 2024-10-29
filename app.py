@@ -11,6 +11,17 @@ import os
 from facenet_pytorch import InceptionResnetV1  
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm  
+import base64
+import requests
+
+# Add this CSS to hide the deploy button
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    #footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 
 if 'lang' not in st.session_state:
     st.session_state.lang = 'en'
@@ -28,7 +39,9 @@ i18n = {
       'no_face_detection': 'No face detected',
       'logout': 'Logout',
       'logout_sucessful': 'You have been logged out.',
-      'greeting': 'Welcome back'
+      'greeting': 'Welcome back',
+      'news_section': 'Latest News',
+      'news_error': 'Failed to fetch news'
   },
   'ar': {
       'login': 'تسجيل الدخول',
@@ -42,7 +55,9 @@ i18n = {
       'no_face_detection': 'لم يتم الكشف عن وجه للمطابقة',
       'logout': 'تسجيل الخروج',
       'logout_sucessful': 'تم تسجيل الخروج بنجاح',
-      'greeting': 'أهلاً بك'
+      'greeting': 'أهلاً بك',
+      'news_section': 'آخر الأخبار',
+      'news_error': 'فشل في جلب الأخبار'
 
   }
 }
@@ -193,6 +208,49 @@ def log_detection(person_name):
         c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', (person_name, timestamp))
         conn.commit()
 
+def create_header():
+    # Initialize language state if not exists
+    if 'lang' not in st.session_state:
+        st.session_state.lang = 'en'
+
+    # Create header with columns
+    header = st.container()
+    with header:
+        _, right_col = st.columns([4, 3])
+        with right_col:
+            # Style the button
+            st.markdown("""
+                <style>
+                .stButton > button {
+                    background-color: transparent;
+                    color: #ff4b4b;
+                    border: 2px solid #ff4b4b;
+                    border-radius: 20px;
+                    padding: 5px 20px;
+                    font-weight: bold;
+                    float: right;
+                    margin-right: 60px;
+                }
+                .stButton > button:hover {
+                    background-color: #ff4b4b;
+                    color: white;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            # Language toggle button
+            if st.session_state.lang == 'en':
+                if st.button("Ar", key="ar_btn_header"):
+                    st.session_state.lang = 'ar'
+                    st.rerun()
+            else:
+                if st.button("En", key="en_btn_header"):
+                    st.session_state.lang = 'en'
+                    st.rerun()
+
+# Call this at the start of your app
+create_header()
+
 def login_page():
     st.title(i18n.get(st.session_state.lang).get('login'))
     username = st.text_input(i18n.get(st.session_state.lang).get('username'))
@@ -205,29 +263,6 @@ def login_page():
             st.rerun()
         else:
             st.error(i18n.get(st.session_state.lang).get('login_error'))
-
-    if st.session_state.lang == 'en':
-        
-        arabic_link_html = """
-                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> العربية </a></div>
-         """
-        #st.markdown(arabic_link_html , unsafe_allow_html=True)
-
-        if st.button("تغيير إلى العربية"):
-            st.session_state.lang = 'ar'
-            st.rerun()
-
-    elif st.session_state.lang == 'ar':
-        english_link_html = """
-                           <div style="text-align: center;"> <a href="#" onclick="window.streamlitRPC.setComponentValue({id: 'change_language'})"> english </a></div>
-         """
-        #st.markdown(english_link_html , unsafe_allow_html=True)
-
-        if st.button("Change to English"):
-            st.session_state.lang = 'en'
-            st.rerun()
-
-
 
 def face_detection_page():
     st.title(i18n.get(st.session_state.lang).get('face_detection_page'))
@@ -264,14 +299,78 @@ def face_detection_page():
                 warning_placeholder.warning(i18n.get(st.session_state.lang).get('no_face_detection'))
                 no_face_detected = True
     cap.release()
+
+def fetch_news():
+    api_key = 'c5b2ec3e7cc6b1c96dc9e0d6b47155d5'
+    url = f'http://api.mediastack.com/v1/news'
+    params = {
+        'access_key': api_key,
+        'languages': 'en',
+        'limit': 5
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()['data']
+    except Exception as e:
+        print(f"Error fetching news: {e}")
+        return None
+
 def welcome_page():
     st.title(f"{i18n.get(st.session_state.lang).get('greeting')} {st.session_state['username']}!")
+    
+    # Add news section
+    st.subheader(i18n.get(st.session_state.lang).get('news_section'))
+    news = fetch_news()
+    
+    if news:
+        for article in news:
+            with st.expander(article['title']):
+                st.write(article['description'])
+                st.write(f"Source: {article['source']}")
+                if article['url']:
+                    st.markdown(f"[Read more]({article['url']})")
+    else:
+        st.error(i18n.get(st.session_state.lang).get('news_error'))
+    
+    # Logout button at the bottom
     if st.button(i18n.get(st.session_state.lang).get('logout')):
         st.success(i18n.get(st.session_state.lang).get('logout_sucessful'))
         st.session_state.clear()
         st.rerun()
 
+def add_bg_from_url():
+    st.markdown(
+         f"""
+         <style>
+         .stApp {{
+             background-image: url("https://img.pikbest.com/backgrounds/20210521/abstract-colorful-landing-page-banner-background-design_5943086.jpg!bw700");
+             background-attachment: fixed;
+             background-size: cover;
+         }}
+         </style>
+         """,
+         unsafe_allow_html=True
+    )
+
+def add_bg_from_local(image_file):
+    with open(image_file, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read())
+    st.markdown(
+    f"""
+    <style>
+    .stApp {{
+        background-image: url(data:image/{"png"};base64,{encoded_string.decode()});
+        background-size: cover;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+    )
+
 def main():
+    add_bg_from_url()
     init_user_db()
     init_embedding_db()
     init_detection_db()
