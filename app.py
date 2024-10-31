@@ -299,9 +299,12 @@ def add_header():
         """, unsafe_allow_html=True)
 
 def add_footer():
-    footer_style = """
+    # Get current language from session state
+    current_lang = st.session_state.get('lang', 'en')
+    
+    footer_style = f"""
     <style>
-        .footer {
+        .footer {{
             position: fixed;
             bottom: 0;
             left: 0;
@@ -311,8 +314,8 @@ def add_footer():
             padding: 10px 0;
             text-align: center;
             z-index: 999;
-        }
-        .footer-content {
+        }}
+        .footer-content {{
             max-width: 800px;
             margin: 0 auto;
             padding: 0 20px;
@@ -320,40 +323,45 @@ def add_footer():
             justify-content: center;
             align-items: center;
             gap: 20px;
-            transform: translateX(-50px);
-        }
-        .github-link {
+            transform: translateX({'-50px' if current_lang == 'en' else '60px'});
+            direction: {('rtl' if current_lang == 'ar' else 'ltr')};
+        }}
+        .github-link {{
             color: #333;
             text-decoration: none;
             transition: color 0.3s ease;
             display: flex;
             align-items: center;
             gap: 5px;
-        }
-        .github-link:hover {
+            {'margin-left: 15px;' if current_lang == 'ar' else ''}
+        }}
+        .github-link:hover {{
             color: #4A00E0;
-        }
-        .github-icon {
+        }}
+        .github-icon {{
             vertical-align: middle;
-        }
+            {'margin-right: 5px;' if current_lang == 'ar' else ''}
+        }}
         /* Add padding to main content to prevent footer overlap */
-        [data-testid="stAppViewContainer"] {
+        [data-testid="stAppViewContainer"] {{
             padding-bottom: 60px;
-        }
+        }}
+        .copyright {{
+            {'margin-right: 15px;' if current_lang == 'ar' else ''}
+        }}
     </style>
     """
+
+    # Create the footer content as a single line to avoid any whitespace issues
+    if current_lang == 'ar':
+        footer_content = '<span class="copyright">© 2024 Book Explorer</span><a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link"><img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" width="30" height="30" class="github-icon">GitHub</a>'
+    else:
+        footer_content = '<span class="copyright">© 2024 Book Explorer</span><a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link"><img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" width="30" height="30" class="github-icon">GitHub</a>'
 
     footer_html = f"""
     <div class="footer">
         <div class="footer-content">
-            © 2024 Book Explorer 
-            <a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link">
-                <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" 
-                     width="30" 
-                     height="30" 
-                     class="github-icon">
-                GitHub
-            </a>
+            {footer_content}
         </div>
     </div>
     """
