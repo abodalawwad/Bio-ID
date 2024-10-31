@@ -20,28 +20,42 @@ openai.api_key = 'YOUR_OPENAI_API_KEY'
 # i18n dictionary for translations
 i18n = {
     'en': {
-        'login': 'Login',
+        'login': '🔐 Login',
         'username': 'Username',
         'password': 'Password',
-        'login_button': 'Login',
-        'login_successful': 'Login successful!',
-        'login_error': 'Invalid username or password',
-        'face_detection_page': 'Face Verification',
-        'face_detection_success': 'Face verified successfully!',
-        'no_face_detection': 'No face detected',
-        'failed_read_from_camera': 'Failed to read from camera'
+        'login_button': '➡️ Login',
+        'login_successful': '✅ Login successful!',
+        'login_error': '❌ Invalid username or password',
+        'face_detection_page': '👁️ Face Verification',
+        'face_detection_success': '✅ Face verified successfully!',
+        'no_face_detection': '⚠️ No face detected',
+        'failed_read_from_camera': '❌ Failed to read from camera',
+        'greeting': '👋 Welcome',
+        'book_search_section': '🔍 Book Search',
+        'enter_book_title': '📚 Enter a book title:',
+        'author': '✍️ Author',
+        'no_books_found': '📭 No books found.',
+        'logout': '🚪 Logout',
+        'logout_successful': '👋 Logout successful'
     },
     'ar': {
-        'login': 'تسجيل الدخول',
+        'login': '🔐 تسجيل الدخول',
         'username': 'اسم المستخدم',
         'password': 'كلمة المرور',
-        'login_button': 'دخول',
-        'login_successful': 'تم تسجيل الدخول بنجاح!',
-        'login_error': 'اسم المستخدم أو كلمة المرور غير صحيحة',
-        'face_detection_page': 'التحقق من الوجه',
-        'face_detection_success': 'تم التحقق من الوجه بنجاح!',
-        'no_face_detection': 'لم يتم اكتشاف وجه',
-        'failed_read_from_camera': 'فشل في القراءة من الكاميرا'
+        'login_button': '➡️ دخول',
+        'login_successful': '✅ تم تسجيل الدخول بنجاح!',
+        'login_error': '❌ اسم المستخدم أو كلمة المرور غير صحيحة',
+        'face_detection_page': '👁️ التحقق من الوجه',
+        'face_detection_success': '✅ تم التحقق من الوجه بنجاح!',
+        'no_face_detection': '⚠️ لم يتم اكتشاف وجه',
+        'failed_read_from_camera': '❌ فشل في القراءة من الكاميرا',
+        'greeting': '👋 مرحبا',
+        'book_search_section': '🔍 بحث الكتب',
+        'enter_book_title': '📚 أدخل عنوان الكتاب:',
+        'author': '✍️ المؤلف',
+        'no_books_found': '📭 لم يتم العثور على كتب.',
+        'logout': '🚪 تسجيل الخروج',
+        'logout_successful': '👋 تم تسجيل الخروج بنجاح'
     }
 }
 
@@ -95,12 +109,18 @@ def recognize_face(model, face_tensor, known_face_embeddings, class_names, devic
 
 # Database logging utility
 def log_detection(person_name):
-    with sqlite3.connect('detections.db', timeout= 10) as conn:
-        c = conn.cursor()
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', 
-                 (person_name, timestamp))
-        conn.commit()
+    try:
+        with sqlite3.connect('detections.db', timeout=10) as conn:
+            c = conn.cursor()
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', 
+                     (person_name, timestamp))
+            conn.commit()
+    except Exception as e:
+        # Use st.error only once and place it in a visible location
+        if 'error_shown' not in st.session_state:
+            st.error(f"Error logging detection: {e}")
+            st.session_state.error_shown = True
 
 # OpenAI utility
 def generate_text(prompt):
@@ -166,12 +186,12 @@ def add_header():
     # Define header text for both languages
     header_text = {
         'en': {
-            'title': 'Book Explorer',
-            'subtitle': 'Discover, Search, and Explore Books Instantly'
+            'title': '📚 Book Explorer',
+            'subtitle': '🔍 Discover, Search, and Explore Books Instantly'
         },
         'ar': {
-            'title': 'مستكشف الكتب',
-            'subtitle': 'اكتشف وابحث واستكشف الكتب فوراً'
+            'title': '📚 مستكشف الكتب',
+            'subtitle': '🔍 اكتشف وابحث واستكشف الكتب فوراً'
         }
     }
 
@@ -279,26 +299,59 @@ def add_header():
         """, unsafe_allow_html=True)
 
 def add_footer():
-    st.markdown("""
-        <style>
+    footer_style = """
+    <style>
         .footer {
             position: fixed;
-            left: 0;
             bottom: 0;
+            left: 0;
             width: 100%;
-            background-color: #f1f1f1;
-            color: #333;
+            background-color: white;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            padding: 10px 0;
             text-align: center;
-            padding: 10px;
-            font-size: 14px;
+            z-index: 999;
         }
-        </style>
-        <div class="footer">
-            <div style="display: inline-block;">
-                2023 Book Explorer. All rights reserved.
-            </div>
+        .footer-content {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .github-link {
+            color: #333;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        .github-link:hover {
+            color: #4A00E0;
+        }
+        .github-icon {
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+        /* Add padding to main content to prevent footer overlap */
+        [data-testid="stAppViewContainer"] {
+            padding-bottom: 60px;
+        }
+    </style>
+    """
+
+    footer_html = f"""
+    <div class="footer">
+        <div class="footer-content">
+            © 2024 Book Explorer | 
+            <a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link">
+                <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" 
+                     width="30" 
+                     height="30" 
+                     class="github-icon">
+                GitHub
+            </a>
         </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """
+
+    st.markdown(footer_style + footer_html, unsafe_allow_html=True)
 
 def init_user_db():
     with sqlite3.connect('users.db', timeout=10) as conn:
@@ -417,14 +470,14 @@ def login_page():
             /* Updated Input Field Styles */
             .stTextInput > div > div > input {
                 width: 160% !important;
-                padding: 1.4rem 2rem !important;
+                padding: 1.0rem 0.5rem !important;
                 height: 0rem !important;
                 background: rgba(255, 255, 255, 0.05) !important;
                 border: none !important;
                 border-radius: 0px !important;
                 color: white !important;
                 font-size: 1.2rem !important;
-                transition: all 0.3s ease !important;
+                transition: all 0.9s ease !important;
                 border: 1px solid rgba(255, 255, 255, 0.1) !important;
                 margin-bottom: 1.5rem !important;
             }
@@ -562,16 +615,19 @@ def init_embedding_db():
         conn.commit()
 
 def init_detection_db():
-    with sqlite3.connect('detections.db', timeout=10) as conn:
-        c = conn.cursor()
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS detections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                person_name TEXT,
-                datetime TEXT
-            )
-        ''')
-        conn.commit()
+    try:
+        with sqlite3.connect('detections.db', timeout=10) as conn:
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS detections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    person_name TEXT,
+                    datetime TEXT
+                )
+            ''')
+            conn.commit()
+    except Exception as e:
+        print(f"Error initializing detection database: {e}")
 
 def load_embeddings_from_db():
     with sqlite3.connect('embeddings.db', timeout=10) as conn:
@@ -682,7 +738,7 @@ def face_detection_page():
     add_footer()
 
     # Add a cancel button to skip face verification (for testing purposes)
-    if st.button("Skip Face Verification (Debug)"):
+    if st.button("⏭️ Skip Face Verification (Debug)"):
         st.session_state["face_recognized"] = True
         st.rerun()
 
@@ -964,6 +1020,15 @@ def get_text(key):
     return i18n[lang].get(key, i18n['en'][key])  # Fallback to English if translation is missing
 
 def main():
+    # Initialize databases at startup
+    init_user_db()
+    init_embedding_db()
+    init_detection_db()
+    
+    # Reset error flag at the start of each session
+    if 'error_shown' not in st.session_state:
+        st.session_state.error_shown = False
+    
     # Initialize session state
     if 'lang' not in st.session_state:
         st.session_state.lang = 'en'
