@@ -316,18 +316,25 @@ def add_footer():
             max-width: 800px;
             margin: 0 auto;
             padding: 0 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            transform: translateX(-50px);
         }
         .github-link {
             color: #333;
             text-decoration: none;
             transition: color 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
         .github-link:hover {
             color: #4A00E0;
         }
         .github-icon {
             vertical-align: middle;
-            margin-right: 5px;
         }
         /* Add padding to main content to prevent footer overlap */
         [data-testid="stAppViewContainer"] {
@@ -339,7 +346,7 @@ def add_footer():
     footer_html = f"""
     <div class="footer">
         <div class="footer-content">
-            © 2024 Book Explorer | 
+            © 2024 Book Explorer 
             <a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link">
                 <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" 
                      width="30" 
