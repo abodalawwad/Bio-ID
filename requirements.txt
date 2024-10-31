@@ -1,4 +1,6 @@
 streamlit
+streamlit-custom-notification-box
+extra-streamlit-components
 torch
 torchvision
 opencv-python
