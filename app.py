@@ -8,365 +8,50 @@ import sqlite3
 from datetime import datetime
 import numpy as np
 import os
-from facenet_pytorch import InceptionResnetV1
+from facenet_pytorch import InceptionResnetV1  
 from sklearn.metrics.pairwise import cosine_similarity
-from tqdm import tqdm
-import base64
-import requests
-import openai
+from tqdm import tqdm  
+import requests 
+import pandas as pd
+import time
+import feedparser
 
-openai.api_key = 'YOUR_OPENAI_API_KEY'
+NEWS_API_KEY = '9365fb4d74msh2d1ab82fff7d361p1fd363jsnf23b80a1b6f2'
 
-# i18n dictionary for translations
+if 'lang' not in st.session_state:
+    st.session_state.lang = 'en'
+
 i18n = {
-    'en': {
-        'login': '🔐 Login',
-        'username': 'Username',
-        'password': 'Password',
-        'login_button': '➡️ Login',
-        'login_successful': '✅ Login successful!',
-        'login_error': '❌ Invalid username or password',
-        'face_detection_page': '👁️ Face Verification',
-        'face_detection_success': '✅ Face verified successfully!',
-        'no_face_detection': '⚠️ No face detected',
-        'failed_read_from_camera': '❌ Failed to read from camera',
-        'greeting': '👋 Welcome',
-        'book_search_section': '🔍 Book Search',
-        'enter_book_title': '📚 Enter a book title:',
-        'author': '✍️ Author',
-        'no_books_found': '📭 No books found.',
-        'logout': '🚪 Logout',
-        'logout_successful': '👋 Logout successful'
-    },
-    'ar': {
-        'login': '🔐 تسجيل الدخول',
-        'username': 'اسم المستخدم',
-        'password': 'كلمة المرور',
-        'login_button': '➡️ دخول',
-        'login_successful': '✅ تم تسجيل الدخول بنجاح!',
-        'login_error': '❌ اسم المستخدم أو كلمة المرور غير صحيحة',
-        'face_detection_page': '👁️ التحقق من الوجه',
-        'face_detection_success': '✅ تم التحقق من الوجه بنجاح!',
-        'no_face_detection': '⚠️ لم يتم اكتشاف وجه',
-        'failed_read_from_camera': '❌ فشل في القراءة من الكاميرا',
-        'greeting': '👋 مرحبا',
-        'book_search_section': '🔍 بحث الكتب',
-        'enter_book_title': '📚 أدخل عنوان الكتاب:',
-        'author': '✍️ المؤلف',
-        'no_books_found': '📭 لم يتم العثور على كتب.',
-        'logout': '🚪 تسجيل الخروج',
-        'logout_successful': '👋 تم تسجيل الخروج بنجاح'
-    }
+  'en': { 
+      'login': 'Login',
+      'username': 'Username',
+      'password': 'Password',
+      'successful_login_now_face_detection': 'Login successful! Redirecting to face detection...',
+      'login_error': "Invalid username or password",
+      'face_detection_page': 'Face Detection',
+      'failed_read_from_camera': 'Failed to read from camera',
+      'face_detection_success': 'Face recognized! Redirecting to welcome page...',
+      'no_face_detection': 'No face detected',
+      'logout': 'Logout',
+      'logout_sucessful': 'You have been logged out.',
+      'greeting': 'Welcome back'
+  },
+  'ar': {
+      'login': 'تسجيل الدخول',
+      'username': 'اسم المستخدم',
+      'password': 'كلمة المرور',
+      'successful_login_now_face_detection': 'تسجيل دخول ناجح, جاري التوجه إلى صفحة التحقق من بصمة الوجه...',
+      'login_error': "اسم المستخدم\الرقم السري غير صحيح",
+      'face_detection_page': 'التحقق من بصمة الوجه',
+      'failed_read_from_camera': 'فشل في الاتصال بالكاميرا',
+      'face_detection_success': 'تم التعرف على بصمة الوجه. التوجه إلى صفحة الترحيب',
+      'no_face_detection': 'لم يتم الكشف عن وجه للمطابقة',
+      'logout': 'تسجيل الخروج',
+      'logout_sucessful': 'تم تسجيل الخروج بنجاح',
+      'greeting': 'أهلاً بك'
+
+  }
 }
-
-# Utility functions for face recognition
-def load_facenet_model(device):
-    """Load and initialize the FaceNet model"""
-    model = InceptionResnetV1(pretrained='vggface2').eval()  
-    model.to(device)
-    return model
-
-def preprocess_image(image, face_cascade_path='haarcascade_frontalface_default.xml'):
-    """Preprocess image for face detection and recognition"""
-    img_rgb = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2RGB)
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + face_cascade_path)
-    faces = face_cascade.detectMultiScale(img_rgb, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-    
-    if len(faces) == 0:
-        raise ValueError("No face detected in the image.")
-        
-    x, y, w, h = faces[0]
-    face = img_rgb[y:y+h, x:x+w]
-    face_pil = Image.fromarray(face)
-    
-    transform = transforms.Compose([
-        transforms.Resize((160, 160)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
-    
-    face_tensor = transform(face_pil)
-    face_tensor = face_tensor.unsqueeze(0)
-    return face_tensor
-
-def recognize_face(model, face_tensor, known_face_embeddings, class_names, device, threshold=0.6):
-    """Recognize a face by comparing it with known face embeddings"""
-    face_tensor = face_tensor.to(device)
-    with torch.no_grad():
-        embedding = model(face_tensor).cpu().numpy()
-    
-    if len(known_face_embeddings) == 0:
-        return "Unknown"
-        
-    similarities = cosine_similarity(embedding, known_face_embeddings)
-    best_match_idx = np.argmax(similarities)
-    best_match_score = similarities[0][best_match_idx]
-    
-    if best_match_score >= threshold:
-        return class_names[best_match_idx]
-    else:
-        return "Unknown"
-
-# Database logging utility
-def log_detection(person_name):
-    try:
-        with sqlite3.connect('detections.db', timeout=10) as conn:
-            c = conn.cursor()
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', 
-                     (person_name, timestamp))
-            conn.commit()
-    except Exception as e:
-        # Use st.error only once and place it in a visible location
-        if 'error_shown' not in st.session_state:
-            st.error(f"Error logging detection: {e}")
-            st.session_state.error_shown = True
-
-# OpenAI utility
-def generate_text(prompt):
-    try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
-            max_tokens=150,
-            n=1,
-            stop=None,
-            temperature=0.7
-        )
-        return response.choices[0].text.strip()
-    except Exception as e:
-        return f"An error occurred: {e}"
-
-st.set_page_config(layout="centered", page_title="Book Explorer", page_icon="📚")
-
-st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
-
-@st.cache_data
-def get_book_info(title):
-    url = f'https://openlibrary.org/search.json?title={title}'
-    response = requests.get(url)
-    return response.json()
-
-def apply_language_styles():
-    if st.session_state.lang == 'ar':
-        st.markdown("""
-            <style>
-            .stApp {
-                direction: rtl;
-                text-align: right;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-            <style>
-            .stApp {
-                direction: ltr;
-                text-align: left;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-
-def add_header():
-    # Get the current language from session state
-    current_lang = st.session_state.get('lang', 'en')  # Default to 'en' if not set
-    
-    # Language label translations
-    lang_label = {
-        'en': 'Language',
-        'ar': 'اللغة'
-    }
-
-    # Define header text for both languages
-    header_text = {
-        'en': {
-            'title': '📚 Book Explorer',
-            'subtitle': '🔍 Discover, Search, and Explore Books Instantly'
-        },
-        'ar': {
-            'title': '📚 مستكشف الكتب',
-            'subtitle': '🔍 اكتشف وابحث واستكشف الكتب فوراً'
-        }
-    }
-
-    # Set text direction based on language
-    text_direction = 'rtl' if current_lang == 'ar' else 'ltr'
-
-    # Use a default language if the current language is not found
-    if current_lang not in header_text:
-        current_lang = 'en'
-
-    st.markdown(f"""
-        <style>
-        .header {{
-            background: linear-gradient(to right, #4A00E0, #8E2DE2, #00C9FF);
-            padding: 20px;
-            text-align: center;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-radius: 0 0 8px 8px;
-            margin-bottom: 20px;
-            direction: {text_direction};
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 999;
-        }}
-        .stApp > header + div {{
-            padding-top: 130px;
-        }}
-        .logo {{
-            width: 60px;
-            height: 60px;
-        }}
-        .title-container {{
-            color: white;
-            flex-grow: 1;
-            text-align: center;
-        }}
-        .main-title {{
-            font-size: 32px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }}
-        .subtitle {{
-            font-size: 16px;
-            opacity: 0.9;
-        }}
-        .lang-container {{
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-right: 20px;
-        }}
-        .lang-label {{
-            color: white;
-            font-size: 12px;
-            margin-bottom: 5px;
-        }}
-        .lang-buttons {{
-            display: flex;
-            gap: 5px;
-        }}
-        .lang-button {{
-            padding: 5px 10px;
-            border: 1px solid white;
-            border-radius: 4px;
-            color: white;
-            background: transparent;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.3s ease;
-        }}
-        .lang-button:hover {{
-            background: rgba(255, 255, 255, 0.1);
-        }}
-        .lang-button.active {{
-            background: white;
-            color: #4A00E0;
-        }}
-        </style>
-        <div class="header">
-            <img src="https://cdn-icons-png.flaticon.com/512/2232/2232688.png" class="logo" alt="Book Explorer Logo">
-            <div class="title-container">
-                <div class="main-title">{header_text[current_lang]['title']}</div>
-                <div class="subtitle">{header_text[current_lang]['subtitle']}</div>
-            </div>
-            <div class="lang-container">
-                <div class="lang-label">{lang_label[current_lang]}</div>
-                <div class="lang-buttons">
-                    <a 
-                        href="?lang=en" 
-                        class="lang-button {'active' if current_lang == 'en' else ''}"
-                        style="text-decoration: none;"
-                    >EN</a>
-                    <a 
-                        href="?lang=ar" 
-                        class="lang-button {'active' if current_lang == 'ar' else ''}"
-                        style="text-decoration: none;"
-                    >عربي</a>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-def add_footer():
-    # Get current language from session state
-    current_lang = st.session_state.get('lang', 'en')
-    
-    footer_style = f"""
-    <style>
-        .footer {{
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background-color: white;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-            padding: 10px 0;
-            text-align: center;
-            z-index: 999;
-        }}
-        .footer-content {{
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 0 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 20px;
-            transform: translateX({'-50px' if current_lang == 'en' else '60px'});
-            direction: {('rtl' if current_lang == 'ar' else 'ltr')};
-        }}
-        .github-link {{
-            color: #333;
-            text-decoration: none;
-            transition: color 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            {'margin-left: 15px;' if current_lang == 'ar' else ''}
-        }}
-        .github-link:hover {{
-            color: #4A00E0;
-        }}
-        .github-icon {{
-            vertical-align: middle;
-            {'margin-right: 5px;' if current_lang == 'ar' else ''}
-        }}
-        /* Add padding to main content to prevent footer overlap */
-        [data-testid="stAppViewContainer"] {{
-            padding-bottom: 60px;
-        }}
-        .copyright {{
-            {'margin-right: 15px;' if current_lang == 'ar' else ''}
-        }}
-    </style>
-    """
-
-    # Create the footer content as a single line to avoid any whitespace issues
-    if current_lang == 'ar':
-        footer_content = '<span class="copyright">© 2024 Book Explorer</span><a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link"><img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" width="30" height="30" class="github-icon">GitHub</a>'
-    else:
-        footer_content = '<span class="copyright">© 2024 Book Explorer</span><a href="https://github.com/abodalawwad/Bio-ID" target="_blank" class="github-link"><img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" width="30" height="30" class="github-icon">GitHub</a>'
-
-    footer_html = f"""
-    <div class="footer">
-        <div class="footer-content">
-            {footer_content}
-        </div>
-    </div>
-    """
-
-    st.markdown(footer_style + footer_html, unsafe_allow_html=True)
 
 def init_user_db():
     with sqlite3.connect('users.db', timeout=10) as conn:
@@ -388,235 +73,42 @@ def add_user(username, password):
         except sqlite3.IntegrityError:
             pass
 
+def fetch_users():
+    with sqlite3.connect('users.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('SELECT * FROM users')
+        users = c.fetchall()
+    return users
+
 def is_valid_user(username, password):
-    # First check database
     with sqlite3.connect('users.db', timeout=10) as conn:
         c = conn.cursor()
         c.execute('SELECT * FROM users WHERE LOWER(username) = LOWER(?) AND password = ?', (username, password))
         user = c.fetchone()
-        if user is not None:
-            return True
-    
-    # Then check hardcoded users
-    valid_users = {
-        'Alahmari': '1234',
-        'user1': 'mypassword'
-    }
-    return valid_users.get(username) == password
+    return user is not None
 
-def login_page():
-    apply_language_styles()
-    add_header()
-    
-    # Add spacing after header
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
-    
-    # Get current language with fallback to English
-    current_lang = st.session_state.get('lang', 'en')
-    if current_lang not in ['en', 'ar']:
-        current_lang = 'en'
-        st.session_state.lang = 'en'
-    
-    # Create three columns for centering
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        st.markdown("""
-            <style>
-            /* Animated Background */
-            .stApp {
-                background: linear-gradient(-45deg, #0F172A, #1E293B, #312E81, #1E3A8A);
-                background-size: 400% 400%;
-                animation: gradientBG 15s ease infinite;
-                direction: """ + ('rtl' if current_lang == 'ar' else 'ltr') + """;
-                text-align: """ + ('right' if current_lang == 'ar' else 'left') + """;
-            }
-            
-            @keyframes gradientBG {
-                0% { background-position: 0% 50%; }
-                50% { background-position: 100% 50%; }
-                100% { background-position: 0% 50%; }
-            }
-            
-            /* Login Container with Glass Effect */
-            [data-testid="column"] > div {
-                background: rgba(15, 23, 42, 0.6);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 24px;
-                padding: 3rem;
-                backdrop-filter: blur(12px);
-                box-shadow: 0 0 45px rgba(0, 0, 0, 0.3);
-                animation: floatIn 0.4s ease-out;
-                width: 100%;
-                max-width: 500px;
-                margin: 0 auto;
-            }
-            
-            @keyframes floatIn {
-                0% {
-                    opacity: 0;
-                    transform: translateY(20px) scale(0.95);
-                }
-                100% {
-                    opacity: 1;
-                    transform: translateY(0) scale(1);
-                }
-            }
-            
-            /* Title with Gradient */
-            h1 {
-                background: linear-gradient(120deg, #fff, #94a3b8, #fff);
-                background-size: 200% auto;
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                animation: shine 5s linear infinite;
-                font-size: 2.5rem !important;
-                margin-bottom: 2rem !important;
-                text-align: center;
-            }
-            
-            /* Input Container */
-            .stTextInput {
-                margin-bottom: 1.5rem;
-                position: relative;
-                animation: slideIn 0.6s ease-out backwards;
-            }
-            
-            /* Updated Input Field Styles */
-            .stTextInput > div > div > input {
-                width: 160% !important;
-                padding: 1.0rem 0.5rem !important;
-                height: 0rem !important;
-                background: rgba(255, 255, 255, 0.05) !important;
-                border: none !important;
-                border-radius: 0px !important;
-                color: white !important;
-                font-size: 1.2rem !important;
-                transition: all 0.9s ease !important;
-                border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                margin-bottom: 1.5rem !important;
-            }
-            
-            /* Input Focus Animation */
-            .stTextInput > div > div > input:focus {
-                background: rgba(255, 255, 255, 0.08) !important;
-                border-color: #6366f1 !important;
-                box-shadow: 0 0 15px rgba(99, 102, 241, 0.3) !important;
-            }
-            
-            /* Updated Button Styles */
-            .stButton > button {
-                width: 190% !important;
-                height: 4rem !important;
-                background: linear-gradient(45deg, #6366f1, #4f46e5) !important;
-                color: white !important;
-                border: none !important;
-                border-radius: 2px !important;
-                font-size: 0.9rem !important;
-                font-weight: 500 !important;
-                text-transform: uppercase !important;
-                letter-spacing: 0.1em !important;
-                transition: all 0.3s ease !important;
-                margin-top: 1rem !important;
-            }
-            
-            .stButton > button:hover {
-                transform: translateY(-2px) !important;
-                box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4) !important;
-            }
-            
-            /* Alert Messages */
-            .stAlert {
-                background: rgba(255, 255, 255, 0.05) !important;
-                backdrop-filter: blur(10px) !important;
-                border-radius: 8px !important;
-                animation: slideUp 0.5s ease-out;
-            }
-            
-            @keyframes slideUp {
-                from {
-                    opacity: 0;
-                    transform: translateY(10px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-            </style>
-        """, unsafe_allow_html=True)
-        
-        # Login form
-        st.title(i18n[current_lang]['login'])
-        
-        with st.form("login_form"):
-            username = st.text_input(
-                i18n[current_lang]['username'],
-                key="username_input",
-                placeholder=i18n[current_lang]['username']
-            )
-            
-            password = st.text_input(
-                i18n[current_lang]['password'],
-                type="password",
-                key="password_input",
-                placeholder=i18n[current_lang]['password']
-            )
-            
-            submit_button = st.form_submit_button(i18n[current_lang]['login_button'])
-            
-            if submit_button:
-                if is_valid_user(username, password):
-                    st.session_state['logged_in'] = True
-                    st.session_state['username'] = username
-                    st.success(i18n[current_lang]['login_successful'])
-                    st.rerun()
-                else:
-                    st.error(i18n[current_lang]['login_error'])
-    
-    add_footer()
+def load_facenet_model(device):
+    model = InceptionResnetV1(pretrained='vggface2').eval()  
+    model.to(device)
+    return model
 
-def welcome_page():
-    apply_language_styles()
-    add_header()
-    
-    st.title(f"{i18n.get(st.session_state.lang).get('greeting')} {st.session_state['username']}!")
-    st.subheader(i18n.get(st.session_state.lang).get('book_search_section', '🔍 Book Search'))
-    
-    # Book Search Section
-    book_title = st.text_input(i18n.get(st.session_state.lang).get('enter_book_title', 'Enter a book title:'))
-    if book_title:
-        book_data = get_book_info(book_title)
-        if book_data['docs']:
-            book = book_data['docs'][0]
-            st.subheader(book.get('title', 'No title available'))
-            st.write(f"{i18n.get(st.session_state.lang).get('author', 'Author')}: {', '.join(book.get('author_name', ['Unknown']))}")
-            cover_id = book.get('cover_i')
-            if cover_id:
-                st.image(f"http://covers.openlibrary.org/b/id/{cover_id}-L.jpg", caption=book['title'])
-        else:
-            st.error(i18n.get(st.session_state.lang).get('no_books_found', 'No books found.'))
-    
-    # Logout button
-    if st.button(i18n.get(st.session_state.lang).get('logout')):
-        st.success(i18n.get(st.session_state.lang).get('logout_successful'))
-        st.session_state.clear()
-        st.rerun()
-    
-    add_footer()
-
-def set_background_color():
-    st.markdown(
-        """
-        <style>
-        .stApp {
-            background-color: #2c3e50;
-            background-image: none;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+def preprocess_image(image, face_cascade_path='haarcascade_frontalface_default.xml'):
+    img_rgb = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2RGB)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + face_cascade_path)
+    faces = face_cascade.detectMultiScale(img_rgb, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+    if len(faces) == 0:
+        raise ValueError("No face detected in the image.")
+    x, y, w, h = faces[0]
+    face = img_rgb[y:y+h, x:x+w]
+    face_pil = Image.fromarray(face)
+    transform = transforms.Compose([
+        transforms.Resize((160, 160)),  
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+    face_tensor = transform(face_pil)
+    face_tensor = face_tensor.unsqueeze(0)  
+    return face_tensor
 
 def init_embedding_db():
     with sqlite3.connect('embeddings.db', timeout=10) as conn:
@@ -629,20 +121,12 @@ def init_embedding_db():
         ''')
         conn.commit()
 
-def init_detection_db():
-    try:
-        with sqlite3.connect('detections.db', timeout=10) as conn:
-            c = conn.cursor()
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS detections (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    person_name TEXT,
-                    datetime TEXT
-                )
-            ''')
-            conn.commit()
-    except Exception as e:
-        print(f"Error initializing detection database: {e}")
+def save_embedding_to_db(person_name, embedding):
+    with sqlite3.connect('embeddings.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('INSERT OR REPLACE INTO embeddings (person_name, embedding) VALUES (?, ?)',
+                  (person_name, embedding.tobytes()))
+        conn.commit()
 
 def load_embeddings_from_db():
     with sqlite3.connect('embeddings.db', timeout=10) as conn:
@@ -658,13 +142,6 @@ def load_embeddings_from_db():
         class_names.append(person_name)
     known_face_embeddings = np.array(known_face_embeddings)
     return known_face_embeddings, class_names
-
-def save_embedding_to_db(person_name, embedding):
-    with sqlite3.connect('embeddings.db', timeout=10) as conn:
-        c = conn.cursor()
-        c.execute('INSERT OR REPLACE INTO embeddings (person_name, embedding) VALUES (?, ?)',
-                  (person_name, embedding.tobytes()))
-        conn.commit()
 
 def check_for_new_persons(data_path):
     with sqlite3.connect('embeddings.db', timeout=10) as conn:
@@ -691,386 +168,459 @@ def generate_and_store_new_embeddings(model, new_persons, data_path, device):
                 except Exception as e:
                     print(f"Error processing image {image_path}: {e}")
 
-def face_detection_page():
-    apply_language_styles()
-    add_header()
-    st.title(i18n.get(st.session_state.lang).get('face_detection_page', 'Face Verification'))
+def recognize_face(model, face_tensor, known_face_embeddings, class_names, device, threshold=0.6):
+    face_tensor = face_tensor.to(device)
+    with torch.no_grad():
+        embedding = model(face_tensor).cpu().numpy()
+    similarities = cosine_similarity(embedding, known_face_embeddings)
+    best_match_idx = np.argmax(similarities)
+    best_match_score = similarities[0][best_match_idx]
+    if best_match_score >= threshold:
+        return class_names[best_match_idx]  
+    else:
+        return "Unknown"  
+
+def init_detection_db():
+    with sqlite3.connect('detections.db', timeout=10) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS detections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_name TEXT,
+                datetime TEXT
+            )
+        ''')
+        conn.commit()
+
+def log_detection(person_name):
+    with sqlite3.connect('detections.db', timeout=10) as conn:
+        c = conn.cursor()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute('INSERT INTO detections (person_name, datetime) VALUES (?, ?)', (person_name, timestamp))
+        conn.commit()
+        
+def fetch_arabic_cybersecurity_news():
+    api_key = '9365fb4d74msh2d1ab82fff7d361p1fd363jsnf23b80a1b6f2'
+    url = 'https://cyber-security-news.p.rapidapi.com/news/%7Blatimes%7D'
     
-    FRAME_WINDOW = st.image([])
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_facenet_model(device)
-    known_face_embeddings, class_names = load_embeddings_from_db()
-    
-    # Add a placeholder for status messages
-    status_placeholder = st.empty()
+    params = {
+        'q': 'الأمن السيبراني OR الهجمات الإلكترونية OR الأمن المعلوماتي',
+        'apiKey': api_key,
+        'language': 'ar',
+        'pageSize': 10,
+        'sortBy': 'publishedAt'
+    }
     
     try:
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            st.error("Could not open camera. Please check your camera connection.")
-            return
-            
-        no_face_detected = False
-        warning_placeholder = st.empty()
-        
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                st.error(i18n.get(st.session_state.lang).get('failed_read_from_camera', 'Failed to read from camera'))
-                break
-                
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            FRAME_WINDOW.image(frame)
-            
-            try:
-                face_tensor = preprocess_image(frame)
-                recognized_person = recognize_face(model, face_tensor, known_face_embeddings, class_names, device)
-                
-                if recognized_person == st.session_state["username"]:
-                    log_detection(recognized_person)
-                    status_placeholder.success(i18n.get(st.session_state.lang).get('face_detection_success', 'Face verified successfully!'))
-                    st.session_state["face_recognized"] = True
-                    cap.release()
-                    st.rerun()
-                    break
-                else:
-                    if no_face_detected:
-                        warning_placeholder.empty()
-                    no_face_detected = False
-                    status_placeholder.warning("Face not recognized. Please try again.")
-                    
-            except ValueError:
-                if not no_face_detected:
-                    warning_placeholder.warning(i18n.get(st.session_state.lang).get('no_face_detection', 'No face detected'))
-                    no_face_detected = True
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-        
-    finally:
-        if 'cap' in locals() and cap is not None:
-            cap.release()
-    
-    add_footer()
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json()['articles']
+        return []
+    except Exception as e:
+        st.error("عذراً، حدث خطأ في جلب الأخبار")
+        return []
 
-    # Add a cancel button to skip face verification (for testing purposes)
-    if st.button("⏭️ Skip Face Verification (Debug)"):
-        st.session_state["face_recognized"] = True
-        st.rerun()
+def display_arabic_news_card(article):
+    st.markdown(
+        f"""
+        <div class="news-card">
+            <h3>{article['title']}</h3>
+            <p><strong>المصدر:</strong> {article['source']['name']}</p>
+            <p>{article['description'] if article['description'] else ''}</p>
+            <p><strong>تاريخ النشر:</strong> {article['publishedAt'].split('T')[0]}</p>
+            <a href="{article['url']}" target="_blank" style="color: #1e3c72;">اقرأ المزيد</a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-def set_animated_theme():
+def set_page_style():
     st.markdown("""
         <style>
-        /* Base Styles and Animations */
-        @keyframes gradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        
-        @keyframes slideInFromTop {
-            0% {
-                transform: translateY(-20px);
-                opacity: 0;
-            }
-            100% {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-        
-        @keyframes fadeIn {
-            0% { opacity: 0; }
-            100% { opacity: 1; }
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-        
-        @keyframes shimmer {
-            0% { background-position: -1000px 0; }
-            100% { background-position: 1000px 0; }
-        }
-        
-        /* Main App Container */
+        /* Hide Streamlit's default header and footer */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+
+        /* Base styles */
         .stApp {
-            background: linear-gradient(-45deg, #0F172A, #1E293B, #1E3A8A, #312E81);
-            background-size: 400% 400%;
-            animation: gradient 15s ease infinite;
-        }
-        
-        /* Header Animation */
-        .stHeader {
-            animation: slideInFromTop 0.5s ease-out;
-            background: rgba(30, 41, 59, 0.8);
-            backdrop-filter: blur(10px);
-        }
-        
-        /* Sidebar Animation */
-        [data-testid="stSidebar"] {
-            animation: slideInFromTop 0.5s ease-out;
-            background: rgba(15, 23, 42, 0.9);
-            backdrop-filter: blur(10px);
-        }
-        
-        /* Card Container Animation */
-        .element-container {
-            animation: fadeIn 0.6s ease-out;
-            transition: transform 0.3s ease;
-        }
-        
-        .element-container:hover {
-            transform: translateY(-2px);
-        }
-        
-        /* Button Animations */
-        .stButton > button {
-            background: linear-gradient(45deg, #3B82F6, #1D4ED8);
-            border: none;
+            background: linear-gradient(90deg, rgba(36,0,31,1) 0%, rgba(9,9,121,1) 57%, rgba(0,0,43,0.9416141456582633) 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: white;
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
+            padding: 20px;
         }
         
-        .stButton > button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
+        /* Main container */
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            
+        }
+                 /* Header styles */
+        .header {
+            background-color:#00188F ;  /* Changed color to grey */
+            color: grey;
+            padding: 2rem;
+            text-align: center;
             width: 100%;
-            height: 100%;
-            background: linear-gradient(
-                120deg,
-                transparent,
-                rgba(255, 255, 255, 0.2),
-                transparent
-            );
-            animation: shimmer 2s infinite;
+            position: fixed;  /* Changed from fixed to sticky */
+            top: 0;
+            left: 0;
+            height: 110px;
+            margin: 0;
+            gap: 100px;
+            line-height: 100px;
+            z-index: 99;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            background: #00188F; /* إذا لم يستطع المتصفح استخدام لون الخلفية المتدرج سيستخدم هذا */
+            background: linear-gradient(#00188F, #EC008C);
         }
         
-        .stButton > button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-            animation: pulse 1s infinite;
+        /* Footer styles */
+        .footer {
+            background-color: #2a5298;
+            color: #ffffff;
+            padding: 1rem;
+            text-align: center;
+            width: 100%;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            z-index: 1000;
+            background: #00188F; /* إذا لم يستطع المتصفح استخدام لون الخلفية المتدرج سيستخدم هذا */
+            background: linear-gradient(#00188F, #EC008C);
+        }
+
+        /* Make all text elements white by default */
+        p, h1, h2, h3, h4, h5, h6, span, label, .stMarkdown, .stText {
+            color: white !important;
         }
         
-        /* Input Field Animations */
-        .stTextInput > div > div > input,
-        .stNumberInput > div > div > input {
-            background: rgba(30, 41, 59, 0.5);
-            border: 2px solid rgba(148, 163, 184, 0.2);
-            border-radius: 8px;
+        /* News card styles */
+        .news-card {
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
             color: white;
+            direction: rtl;
+            text-align: right;
+        }
+        
+        .news-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .news-card h3 {
+            color: white !important;
+            font-size: 1.3rem;
+            margin-bottom: 1rem;
+            line-height: 1.4;
+        }
+        
+        .news-card p {
+            color: white !important;
+            font-size: 1rem;
+            line-height: 1.6;
+            margin: 0.8rem 0;
+        }
+        
+        /* Ensure links are visible */
+        .news-card a {
+            color: #4da6ff !important;
+        }
+        
+        /* Button styles */
+        .stButton button {
+            background: linear-gradient(45deg, #1e3c72, #2a5298);
+            color: white;
+            border-radius: 25px;
+            padding: 0.7rem 1.5rem;
+            border: none;
+            font-weight: 500;
             transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 0.5rem;
         }
         
-        .stTextInput > div > div > input:focus,
-        .stNumberInput > div > div > input:focus {
-            border-color: #3B82F6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-            transform: translateY(-1px);
+        .stButton button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
         }
         
-        /* Select Box Animation */
-        .stSelectbox > div > div {
-            transition: all 0.3s ease;
-        }
-        
- .stSelectbox > div > div:hover {
-            border-color: #3B82F6;
-            transform: translateY(-1px);
-        }
-        
-        /* Progress Bar Animation */
-        .stProgress > div > div > div > div {
-            background: linear-gradient(-45deg, #3B82F6, #1D4ED8);
-            background-size: 200% 200%;
-            animation: gradient 2s ease infinite;
-        }
-        
-        /* Alert Animation */
-        .stAlert {
-            animation: slideInFromTop 0.5s ease-out;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(30, 41, 59, 0.5);
-            backdrop-filter: blur(10px);
-        }
-        
-        /* Success Message Animation */
-        .element-container.css-1e5imcs.e1tzin5v1 {
-            animation: fadeIn 0.5s ease-out;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            border-radius: 8px;
-        }
-        
-        /* Error Message Animation */
-        .element-container.css-1offfwp.e1tzin5v1 {
-            animation: fadeIn 0.5s ease-out;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            border-radius: 8px;
-        }
-        
-        /* Metric Value Animation */
-        [data-testid="stMetricValue"] {
-            animation: fadeIn 0.8s ease-out;
-        }
-        
-        /* Table Animation */
-        .stTable {
-            animation: fadeIn 0.8s ease-out;
-            background: rgba(30, 41, 59, 0.3);
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            background-color: #b8aeee;
+            padding: 0.5rem;
             border-radius: 10px;
-            overflow: hidden;
+            color: grey;
         }
         
-        /* Dataframe Animation */
-        .dataframe {
-            animation: fadeIn 0.8s ease-out;
-            transition: all 0.3s ease;
-        }
-        
-        .dataframe:hover {
-            transform: scale(1.01);
-        }
-        
-        /* File Uploader Animation */
-        .stFileUploader {
-            animation: fadeIn 0.8s ease-out;
-            border: 2px dashed rgba(148, 163, 184, 0.2);
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
-        
-        .stFileUploader:hover {
-            border-color: #3B82F6;
-            transform: translateY(-2px);
-        }
-        
-        /* Checkbox Animation */
-        .stCheckbox > label > div[role="checkbox"] {
-            transition: all 0.3s ease;
-        }
-        
-        .stCheckbox > label > div[role="checkbox"]:hover {
-            transform: scale(1.1);
-        }
-        
-        /* Radio Button Animation */
-        .stRadio > div > label > div:first-child {
-            transition: all 0.3s ease;
-        }
-        
-        .stRadio > div > label > div:first-child:hover {
-            transform: scale(1.1);
-        }
-        
-        /* Slider Animation */
-        .stSlider > div > div > div > div {
-            transition: all 0.3s ease;
-        }
-        
-        .stSlider > div > div > div > div:hover {
-            transform: scale(1.2);
-        }
-        
-        /* Header Text Animation */
-        h1, h2, h3 {
-            background: linear-gradient(120deg, #3B82F6, #1D4ED8, #3B82F6);
-            background-size: 200% auto;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: gradient 3s linear infinite;
-        }
-        
-        /* Loading Spinner Animation */
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .stSpinner > div {
-            animation: spin 1s linear infinite;
-            border-color: #3B82F6 transparent transparent transparent;
-        }
-        
-        /* Scrollbar Animation */
-        ::-webkit-scrollbar {
-            width: 10px;
-            height: 10px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: rgba(30, 41, 59, 0.3);
+        .stTabs [data-baseweb="tab"] {
+            color: white !important;
             border-radius: 5px;
+            padding: 0.5rem 1rem;
         }
         
-        ::-webkit-scrollbar-thumb {
-            background: rgba(148, 163, 184, 0. 3);
-            border-radius: 5px;
-            transition: all 0.3s ease;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(148, 163, 184, 0.5);
-        }
-        
-        /* Tooltip Animation */
-        [data-tooltip]:hover::before {
-            animation: fadeIn 0.3s ease-out;
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .news-card {
+                padding: 1rem;
+            }
+            .news-card h3 {
+                font-size: 1.1rem;
+            }
+            .main-container {
+                padding: 10px;
+            }
         }
         </style>
     """, unsafe_allow_html=True)
 
-def get_text(key):
-    lang = st.session_state.get('lang', 'en')
-    return i18n[lang].get(key, i18n['en'][key])  # Fallback to English if translation is missing
+def display_header():
+    st.markdown("""
+        <div class="header">
+            <h1>Bio-ID Project</h1>
+        </div>
+    """, unsafe_allow_html=True)
+
+def display_footer():
+    st.markdown("""
+        <div class="footer">
+            <p>© 2024 Bio-ID Project. All rights reserved.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+def login_page():
+    col1, col2 = st.columns([1, 11])
+    with col1:
+        if st.session_state.lang == 'en':
+            if st.button("ar", key="lang_btn"):
+                st.session_state.lang = 'ar'
+                st.rerun()
+        else:
+            if st.button("en", key="lang_btn"):
+                st.session_state.lang = 'en'
+                st.rerun()
+
+    st.title(i18n.get(st.session_state.lang).get('login'))
+    username = st.text_input(i18n.get(st.session_state.lang).get('username'))
+    password = st.text_input(i18n.get(st.session_state.lang).get('password'), type="password")
+    if st.button(i18n.get(st.session_state.lang).get('login')):
+        if is_valid_user(username, password):
+            st.session_state["username"] = username
+            st.session_state["logged_in"] = True
+            st.success(i18n.get(st.session_state.lang).get('successful_login_now_face_detection'))
+            st.rerun()
+        else:
+            st.error(i18n.get(st.session_state.lang).get('login_error'))
+
+def face_detection_page():
+    st.title(i18n.get(st.session_state.lang).get('face_detection_page'))
+    FRAME_WINDOW = st.image([])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = load_facenet_model(device)
+    known_face_embeddings, class_names = load_embeddings_from_db()
+    cap = cv2.VideoCapture(0)
+    no_face_detected = False
+    warning_placeholder = st.empty()  
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            st.error(i18n.get(st.session_state.lang).get('failed_read_from_camera'))
+            break
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        FRAME_WINDOW.image(frame)
+        try:
+            face_tensor = preprocess_image(frame)
+            recognized_person = recognize_face(model, face_tensor, known_face_embeddings, class_names, device)
+            if recognized_person == st.session_state["username"]:
+                log_detection(recognized_person)
+                st.balloons()
+                st.success("🎉 مرحباً بك في مشروع الأمن السيبراني!")
+                st.session_state["face_recognized"] = True
+                time.sleep(1.5)
+                st.rerun()
+                break
+            else:
+                if no_face_detected:
+                    warning_placeholder.empty() 
+                no_face_detected = False
+        except ValueError:
+            if not no_face_detected:
+                warning_placeholder.warning(i18n.get(st.session_state.lang).get('no_face_detection'))
+                no_face_detected = True
+    cap.release()
+
+def fetch_cybersecurity_news():
+    url = "https://cyber-security-news.p.rapidapi.com/news"
+    headers = {
+        "x-rapidapi-key": "9365fb4d74msh2d1ab82fff7d361p1fd363jsnf23b80a1b6f2",
+        "x-rapidapi-host": "cyber-security-news.p.rapidapi.com"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json().get('articles', [])
+        else:
+            st.error("Failed to fetch news articles.")
+            return []
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        return []
+
+def fetch_news_from_wsj():
+    url = "https://newsapi.org/v2/everything"
+    params = {
+        "domains": "wsj.com",
+        "apiKey": "7ede616eb481419a999234b2bf2edc52"
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json().get('articles', [])
+        else:
+            st.error("Failed to fetch news articles.")
+            return []
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        return []
+
+def fetch_techcrunch_news():
+    url = "https://newsapi.org/v2/top-headlines"
+    params = {
+        "sources": "techcrunch",
+        "apiKey": "7ede616eb481419a999234b2bf2edc52"
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            return response.json().get('articles', [])
+        else:
+            st.error("Failed to fetch news articles.")
+            return []
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        return []
+
+def welcome_page():
+    set_page_style()
+    
+    st.markdown(
+        f"""
+        <div class="custom-header">
+            <h1>مرحباً بك في مشروع الأمن السيبراني</h1>
+            <h2>{st.session_state['username']}</h2>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Create tabs
+    tab1, tab2 = st.tabs(["آخر الأخبار", "سجل الدخول"])
+    
+    with tab1:
+        st.markdown("<h2 style='text-align: right; color: white;'>أخبار فرانس 24</h2>", unsafe_allow_html=True)
+        rss_url = "https://www.france24.com/ar/rss"
+        french_news_items = fetch_rss_feed(rss_url)  # Fetch RSS feed
+        if french_news_items:
+            for item in french_news_items:
+                st.markdown(f"### {item['title']}")
+                st.markdown(f"[اقرأ المزيد]({item['link']})")
+                st.markdown(f"{item['summary']}")
+                st.markdown("---")
+        else:
+            st.info("لا توجد أخبار متاحة حالياً")
+    
+    with tab2:
+        st.markdown("<h2 style='text-align: right; color: white;'>سجل تسجيل الدخول</h2>", unsafe_allow_html=True)
+        with sqlite3.connect('detections.db', timeout=10) as conn:
+            df = pd.read_sql_query(''' 
+                SELECT datetime as 'التاريخ والوقت', 
+                       person_name as 'اسم المستخدم'
+                FROM detections 
+                WHERE person_name = ? 
+                ORDER BY datetime DESC 
+                LIMIT 10
+            ''', conn, params=(st.session_state['username'],))
+        
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("لا يوجد سجل دخول سابق")
+    
+    # Logout button
+    if st.button("تسجيل الخروج", key="logout_button"):
+        st.session_state.clear()
+        st.success("تم تسجيل الخروج بنجاح")
+        st.rerun()
+
+def fetch_rss_feed(url):
+    feed = feedparser.parse(url)
+    news_items = []
+    for entry in feed.entries:
+        news_items.append({
+            'title': entry.title,
+            'link': entry.link,
+            'summary': entry.summary if 'summary' in entry else ''
+        })
+    return news_items
+
+# Fetch the RSS feed
+rss_url = "https://www.argaam.com/ar/rss/educationalmarket-mainnewsar?sectionid=1408"
+news_items = fetch_rss_feed(rss_url)
+
+# Store the news items in a format that can be accessed by the frontend
+st.session_state['news_items'] = news_items
 
 def main():
-    # Initialize databases at startup
+    set_page_style()
+    display_header()
+    
     init_user_db()
     init_embedding_db()
     init_detection_db()
-    
-    # Reset error flag at the start of each session
-    if 'error_shown' not in st.session_state:
-        st.session_state.error_shown = False
-    
-    # Initialize session state
-    if 'lang' not in st.session_state:
-        st.session_state.lang = 'en'
-    
-    # Get language from URL parameter and validate it
-    query_params = st.query_params
-    if 'lang' in query_params:
-        new_lang = query_params['lang']
-        if new_lang in ['en', 'ar']:  # Only accept valid language codes
-            st.session_state.lang = new_lang
-    
-    # Main application flow
-    if not st.session_state.get("logged_in", False):
+    users_to_add = [
+        ("Alahmari", "1234"),
+        ("Alawad", "1234"),
+        ("Alenazi", "1234")
+    ]
+    for username, password in users_to_add:
+        add_user(username, password)
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+    if "face_recognized" not in st.session_state:
+        st.session_state["face_recognized"] = False
+    if not st.session_state["logged_in"]:
         login_page()
-    elif not st.session_state.get("face_recognized", False):
+    elif not st.session_state["face_recognized"]:
         face_detection_page()
     else:
         welcome_page()
-    
-    # Check for new face embeddings
+
+
+
     data_path = "image_persons"
     new_persons = check_for_new_persons(data_path)
     if new_persons:
         print("Found New Persons. Putting them into db.")
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = load_facenet_model(device)
-        generate_and_store_new_embeddings(model, new_persons, data_path, device)
+        model = load_facenet_model(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        generate_and_store_new_embeddings(model, new_persons, data_path, torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
+    display_footer()
 
 if __name__ == "__main__":
     main()
